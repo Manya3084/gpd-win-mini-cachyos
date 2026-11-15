@@ -9,7 +9,7 @@ systemctl disable --now tdp-fan-quiet.service steamos-tdp-provider.service 2>/de
 /usr/local/bin/gpd-fan-quiet --restore 2>/dev/null
 rm -f /usr/local/bin/tdpctl /usr/local/bin/gpd-fan-quiet /usr/local/bin/steamos-tdp-provider
 rm -f /etc/systemd/system/tdp-fan-quiet.service /etc/systemd/system/steamos-tdp-provider.service
-rm -f /etc/sudoers.d/tdpctl /etc/dbus-1/system.d/org.cachyos.TdpProvider.conf
+rm -f /etc/sudoers.d/tdpctl /etc/dbus-1/system.d/org.cachyos.TdpProvider.conf /etc/udev/rules.d/70-gpd-controller.rules
 rm -f /etc/steamos-manager/remotes.d/10-gpd-tdp.toml /usr/share/steamos-manager/devices/gpd-win-mini-2025.toml
 systemctl daemon-reload; udevadm control --reload
 systemctl restart steamos-manager.service 2>/dev/null

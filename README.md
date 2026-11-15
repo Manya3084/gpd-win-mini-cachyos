@@ -4,7 +4,7 @@ Small fixes and tools for running CachyOS (Plasma desktop + gamescope "SteamOS m
 on the GPD WIN Mini 2025 (Ryzen AI 9 HX 370 / AI 9 365). Most of it should apply to
 other GPD handhelds and to any AMD handheld that lacks a vendor TDP driver.
 
-Two problems are solved here:
+Three problems are solved here:
 
 1. **Tap-to-click does nothing in gamescope.** gamescope has no libinput configuration,
    so touchpad taps are never turned into clicks (upstream PR
@@ -15,6 +15,9 @@ Two problems are solved here:
    power limit. Userspace has to talk to the SMU via [RyzenAdj](https://github.com/FlyGoat/RyzenAdj),
    which needs `iomem=relaxed` on the kernel command line. Without a limit the HX 370 can
    pull toward its 54 W firmware ceiling and hard power-off the device under load.
+3. **The L4 / R4 back buttons seem dead.** They are keyboard macro keys, and the 2025 unit
+   ships with a placeholder `A B C D` macro in every slot. Nothing is broken; they just need a
+   real mapping written to the controller.
 
 ## What's inside
 
@@ -25,6 +28,7 @@ Two problems are solved here:
 | `tdp/gpd-fan-quiet` | Gentler fan curve using the kernel `gpd-fan` driver's manual PWM mode (~1200 rpm idle vs ~4000 rpm for the EC curve). Hands control back to the EC on exit or crash. |
 | `tdp/steamos-tdp-provider` | System-bus D-Bus service implementing Valve's `TdpLimit1` interface. Registered with steamos-manager as a *remote interface*, which makes **Steam's native TDP slider** work in gamescope with no patched binaries and no Decky plugin. |
 | `plasmoid/` | Plasma 6 panel widget: TDP slider, four presets, CPU boost switch, fan Normal/Quiet, live power/temp/rpm readout. Reads the real limit from the chip, so it always agrees with Steam. |
+| `backbuttons/` | udev rule for the controller's WinControls interface and a script that maps L4 = Shift+Tab, R4 = F12 with OpenWinControlsCLI. |
 | `pkg/ryzenadj/` | PKGBUILD for [RyzenAdj](https://github.com/FlyGoat/RyzenAdj), pinned to a tagged release with checksum. |
 | `install.sh` / `uninstall.sh` | Idempotent installer; substitutes your username into the sudoers and D-Bus policy files. |
 
@@ -63,6 +67,60 @@ Then:
 - **KDE widget:** Edit Mode → Add Widgets → *TDP Control*. Presets are editable in the
   widget settings.
 - **Check from a terminal:** `steamosctl get-tdp-limit`, `sudo tdpctl status`.
+
+## L4 / R4 back buttons
+
+The controller hub shows up as four USB devices: the gamepad, a mouse, a keyboard and a
+"Vendor for Windows" interface (`2f24:0137` on the 2025 model). The back buttons are **not
+gamepad buttons**: each one plays a macro of up to 32 keyboard/mouse keys through the keyboard
+interface, and the vendor interface is where that macro is programmed. Out of the box every
+macro slot holds `A B C D` with odd timings, so pressing L4 or R4 types "abcd" into whatever
+has focus, which in Steam looks like nothing at all.
+
+**Firmware first.** Early 2025 units shipped with controller firmware on which the back buttons
+did not work at all. Update with GPD's *WinControls v2.08 + WIN Mini 2025 controller firmware
+v1.24* package from the [GPD download page](https://www.gpd.hk/gpdwinmini2025firmwaredriver).
+The updater is Windows-only, so do it from a Windows install or a Windows-To-Go stick before
+expecting anything below to help. You can check what you have from Linux:
+
+```sh
+OpenWinControlsCLI print | head -5     # expect "Keyboard&Mouse Version: 1.24" or newer
+```
+
+**Install the tooling** (the GUI `openwincontrols-git` works too; the CLI is scriptable):
+
+```sh
+sudo ./install.sh --backbuttons        # udev rule so the CLI works without sudo
+git clone https://aur.archlinux.org/openwincontrolscli-git.git && cd openwincontrolscli-git && makepkg -si
+```
+
+**Apply the Steam-friendly mapping** (L4 = Shift+Tab for the Steam overlay / menu,
+R4 = F12 for Steam screenshots). The script saves the current config to `~/Documents` first:
+
+```sh
+./backbuttons/apply-steam-mapping.sh
+```
+
+Or roll your own, e.g. F13/F14 to bind per game inside Steam Input:
+
+```sh
+OpenWinControlsCLI keys                                   # list of accepted key names
+OpenWinControlsCLI set l4 F13 l4d 0 l4h 100 r4 F14 r4d 0 r4h 100
+```
+
+Verify by pressing the buttons while watching `sudo libinput debug-events` or `evtest` on the
+"Keyboard for Windows" device.
+
+Notes:
+- The mapping is stored in the controller, so it persists across reboots and applies under
+  Windows as well.
+- `l4d`/`r4d` are per-key start offsets and `l4h`/`r4h` per-key hold times, in ms. For a chord,
+  start the modifier first and release it last (the script uses Shift 0–220 ms, Tab 40–160 ms).
+  Hold times over ~150 ms make the kernel emit a key auto-repeat; harmless for most keys.
+- Slots beyond the active count keep whatever stale keys were there; the firmware ignores them.
+- CLI 2.10's `export` exits 0 without writing a file; back up with `OpenWinControlsCLI print > file`.
+- Handheld Daemon also speaks this protocol (its "WinControls" tab) if you go that route for
+  controller emulation.
 
 ## How the TDP path fits together
 

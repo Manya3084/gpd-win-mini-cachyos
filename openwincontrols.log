@@ -1,0 +1,7 @@
+OpenWinControlsCLI logs - Sun Nov 15 14:44:39 2026
+
+found gamepad: /dev/hidraw4 [2f24:137]
+
+bool OWC::Controller::init():166
+Failed to open a device with path '/dev/hidraw4': Permission denied
+

@@ -1,0 +1,5 @@
+# Let the logged-in user talk to the GPD controller's vendor (WinControls) interface,
+# so OpenWinControlsCLI / OpenWinControls work without sudo.
+# 0137 = 2025 WIN Mini / WIN 5 controller (protocol V2), 0135 = older WIN Mini / WIN 4 / WIN Max 2.
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2f24", ATTRS{idProduct}=="0137", TAG+="uaccess"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="2f24", ATTRS{idProduct}=="0135", TAG+="uaccess"

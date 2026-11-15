@@ -1,24 +1,25 @@
 #!/usr/bin/bash
 # Installer for the GPD WIN Mini (2025) CachyOS extras.
-# Run as root from the repo root:  sudo ./install.sh [--touchpad|--tdp|--all] [--user NAME]
+# Run as root from the repo root:  sudo ./install.sh [--touchpad|--tdp|--backbuttons|--all] [--user NAME]
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_USER="${SUDO_USER:-}"
-DO_TOUCHPAD=0; DO_TDP=0
+DO_TOUCHPAD=0; DO_TDP=0; DO_BB=0
 
 usage() { sed -n '2,3p' "$0"; exit "${1:-0}"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --touchpad) DO_TOUCHPAD=1 ;;
     --tdp)      DO_TDP=1 ;;
-    --all)      DO_TOUCHPAD=1; DO_TDP=1 ;;
+    --backbuttons) DO_BB=1 ;;
+    --all)      DO_TOUCHPAD=1; DO_TDP=1; DO_BB=1 ;;
     --user)     TARGET_USER="$2"; shift ;;
     -h|--help)  usage ;;
     *) echo "unknown option: $1"; usage 1 ;;
   esac; shift
 done
-[[ $DO_TOUCHPAD -eq 0 && $DO_TDP -eq 0 ]] && { DO_TOUCHPAD=1; DO_TDP=1; }
+[[ $DO_TOUCHPAD -eq 0 && $DO_TDP -eq 0 && $DO_BB -eq 0 ]] && { DO_TOUCHPAD=1; DO_TDP=1; DO_BB=1; }
 [[ $EUID -eq 0 ]] || { echo "run with sudo"; exit 1; }
 [[ -n "$TARGET_USER" && "$TARGET_USER" != root ]] || { echo "pass --user <your login> (could not infer from sudo)"; exit 1; }
 id "$TARGET_USER" >/dev/null
@@ -75,6 +76,18 @@ if [[ $DO_TDP -eq 1 ]]; then
     echo "!!  kernel cmdline lacks iomem=relaxed; ryzenadj cannot reach the SMU without it."
     echo "    Limine (CachyOS default): append ' iomem=relaxed' to KERNEL_CMDLINE[default] in /etc/default/limine,"
     echo "    then run: sudo limine-update   and reboot.  (GRUB: GRUB_CMDLINE_LINUX_DEFAULT + grub-mkconfig)"
+  fi
+fi
+if [[ $DO_BB -eq 1 ]]; then
+  echo "==> back buttons: udev rule for the controller's WinControls interface"
+  install -m 644 "$HERE/backbuttons/70-gpd-controller.rules" /etc/udev/rules.d/70-gpd-controller.rules
+  udevadm control --reload; udevadm trigger --action=add --subsystem-match=usb --subsystem-match=hidraw
+  if ! command -v OpenWinControlsCLI >/dev/null; then
+    echo "    then, as your normal user, install the CLI and apply the mapping:"
+    echo "      git clone https://aur.archlinux.org/openwincontrolscli-git.git && cd openwincontrolscli-git && makepkg -si"
+    echo "      $HERE/backbuttons/apply-steam-mapping.sh"
+  else
+    echo "    OpenWinControlsCLI present; run $HERE/backbuttons/apply-steam-mapping.sh as your user to map L4/R4"
   fi
 fi
 echo "==> done"
