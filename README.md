@@ -28,7 +28,7 @@ Three problems are solved here:
 | `tdp/gpd-fan-quiet` | Gentler fan curve using the kernel `gpd-fan` driver's manual PWM mode (~1200 rpm idle vs ~4000 rpm for the EC curve). Hands control back to the EC on exit or crash. |
 | `tdp/steamos-tdp-provider` | System-bus D-Bus service implementing Valve's `TdpLimit1` interface. Registered with steamos-manager as a *remote interface*, which makes **Steam's native TDP slider** work in gamescope with no patched binaries and no Decky plugin. |
 | `plasmoid/` | Plasma 6 panel widget: TDP slider, four presets, CPU boost switch, fan Normal/Quiet, live power/temp/rpm readout. Reads the real limit from the chip, so it always agrees with Steam. |
-| `backbuttons/` | udev rule for the controller's WinControls interface and a script that maps L4 = Menu+R1 (Steam screenshot chord) and R4 = Menu+A (Quick Access Menu) as gamepad chords with OpenWinControlsCLI. |
+| `backbuttons/` | udev rule for the controller's WinControls interface, a script that maps L4 = Menu+R1 and R4 = Menu+A as gamepad chords with OpenWinControlsCLI, and a patch that teaches Steam's chord layout to screenshot on Menu+R1. |
 | `pkg/ryzenadj/` | PKGBUILD for [RyzenAdj](https://github.com/FlyGoat/RyzenAdj), pinned to a tagged release with checksum. |
 | `install.sh` / `uninstall.sh` | Idempotent installer; substitutes your username into the sudoers and D-Bus policy files. |
 
@@ -106,11 +106,18 @@ button alone still opens the Steam menu. The script saves the current config to 
 ```
 
 **Make Menu+R1 take screenshots.** Steam's stock chord for screenshots on an Xbox-style pad is
-Guide + RT, but the V2 firmware has a known bug where **LT/RT are ignored in macro slots**
-(reported to GPD in February 2026, unfixed), so a back button cannot pull a trigger. Instead
-rebind the chord in Steam: *Settings → Controller → Guide Button Chord Layout → Edit Layout*,
-pick the right bumper, and under *System* choose *Take Screenshot*. L4 then works everywhere
-Steam is running. Holding the Menu button for a few seconds in gamepad mode shows the current
+Guide + RT (about a half pull), but the V2 firmware has a known bug where **LT/RT are ignored in
+macro slots** (reported to GPD in February 2026, unfixed), so a back button cannot pull a trigger.
+Steam needs to learn the bumper chord instead. The clean way is *Settings → Controller → Guide
+Button Chord Layout → Edit Layout*, right bumper → *System → Take Screenshot*. If that setting is
+missing or does not stick on your install, patch Steam's base chord layouts directly:
+
+```sh
+./backbuttons/patch-steam-chord.sh     # edits controller_base/chord*.vdf, keeps .orig backups
+```
+
+Restart Steam afterwards. Steam updates may replace those files; the script is idempotent, so
+just run it again. Holding the Menu button for a few seconds in gamepad mode shows the current
 chord list if you want to check.
 
 Or roll your own. Gamepad names (`MENU`, `BTN_A`, `R1`, … but not the triggers, see above) and keyboard names (`F13`, …) can be
