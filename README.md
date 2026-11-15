@@ -28,7 +28,7 @@ Three problems are solved here:
 | `tdp/gpd-fan-quiet` | Gentler fan curve using the kernel `gpd-fan` driver's manual PWM mode (~1200 rpm idle vs ~4000 rpm for the EC curve). Hands control back to the EC on exit or crash. |
 | `tdp/steamos-tdp-provider` | System-bus D-Bus service implementing Valve's `TdpLimit1` interface. Registered with steamos-manager as a *remote interface*, which makes **Steam's native TDP slider** work in gamescope with no patched binaries and no Decky plugin. |
 | `plasmoid/` | Plasma 6 panel widget: TDP slider, four presets, CPU boost switch, fan Normal/Quiet, live power/temp/rpm readout. Reads the real limit from the chip, so it always agrees with Steam. |
-| `backbuttons/` | udev rule for the controller's WinControls interface and a script that maps L4 = F12 (screenshot), R4 = Ctrl+Shift+Tab (Quick Access Menu) with OpenWinControlsCLI. |
+| `backbuttons/` | udev rule for the controller's WinControls interface and a script that maps L4 = Menu+R1 (Steam screenshot) and R4 = Menu+A (Quick Access Menu) as gamepad chords with OpenWinControlsCLI. |
 | `pkg/ryzenadj/` | PKGBUILD for [RyzenAdj](https://github.com/FlyGoat/RyzenAdj), pinned to a tagged release with checksum. |
 | `install.sh` / `uninstall.sh` | Idempotent installer; substitutes your username into the sudoers and D-Bus policy files. |
 
@@ -94,35 +94,36 @@ sudo ./install.sh --backbuttons        # udev rule so the CLI works without sudo
 git clone https://aur.archlinux.org/openwincontrolscli-git.git && cd openwincontrolscli-git && makepkg -si
 ```
 
-**Apply the Steam-friendly mapping**: L4 = F12 (Steam screenshot), R4 = Ctrl+Shift+Tab
-(Steam's Quick Access Menu hotkey, the "..." tray on the right). The controller's Menu button
-already opens the Steam menu, so the back buttons cover the two things it does not. The script
-saves the current config to `~/Documents` first:
+**Apply the Steam-friendly mapping**: L4 = Menu+R1 (Steam screenshot) and R4 = Menu+A
+(Quick Access Menu, the "..." tray). These are *gamepad* chords: the firmware can put gamepad
+buttons in the macro slots, they arrive on the Xbox-pad device, and Steam Input consumes them as
+system shortcuts so nothing leaks into the game. Keyboard mappings such as F12 or Ctrl+Shift+Tab
+also reach the game and did not reliably trigger Steam's actions in gamepad mode. The Menu
+button alone still opens the Steam menu. The script saves the current config to `~/Documents` first:
 
 ```sh
 ./backbuttons/apply-steam-mapping.sh
 ```
 
-Or roll your own, e.g. F13/F14 to bind per game inside Steam Input:
+Or roll your own. Gamepad names (`MENU`, `BTN_A`, `R1`, …) and keyboard names (`F13`, …) can be
+mixed per slot; F13/F14 are handy if you prefer binding per game inside Steam Input:
 
 ```sh
-OpenWinControlsCLI keys                                   # list of accepted key names
+OpenWinControlsCLI keys                                   # accepted names
 OpenWinControlsCLI set l4 F13 l4d 0 l4h 100 r4 F14 r4d 0 r4h 100
 ```
 
-Verify by pressing the buttons while watching `sudo libinput debug-events` or `evtest` on the
-"Keyboard for Windows" device.
+Verify by pressing the buttons while watching `evtest` on the "Microsoft X-Box 360 pad" device
+(or "Keyboard for Windows" for keyboard mappings).
 
 Notes:
 - The mapping is stored in the controller, so it persists across reboots and applies under
   Windows as well.
 - `l4d`/`r4d` are per-key start offsets and `l4h`/`r4h` per-key hold times, in ms. For a chord,
-  start the modifiers first and release them last (the script holds Ctrl and Shift 0–220 ms
-  and taps Tab 40–160 ms).
-- Steam hotkeys in the gamepad UI: Ctrl+Shift+Tab opens the Quick Access Menu and Shift+Tab
-  the Steam menu, in and out of games on current Steam clients (older clients only honoured
-  Ctrl+1 / Ctrl+2 outside of games). If your client ignores them, update Steam or check
-  Settings for the configurable hotkeys.
+  start the modifier first and release it last (the script holds Menu 0–400 ms and taps the
+  second button 100–300 ms). Too short a Menu hold and Steam treats it as a plain Menu tap.
+- Other Steam Guide chords you can target the same way: Menu+X on-screen keyboard, Menu+L1
+  magnifier, Menu+B (hold) force quit.
   Hold times over ~150 ms make the kernel emit a key auto-repeat; harmless for most keys.
 - Slots beyond the active count keep whatever stale keys were there; the firmware ignores them.
 - CLI 2.10's `export` exits 0 without writing a file; back up with `OpenWinControlsCLI print > file`.
