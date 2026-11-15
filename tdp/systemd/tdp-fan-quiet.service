@@ -1,0 +1,14 @@
+[Unit]
+Description=Quiet fan curve for the GPD fan (manual PWM control)
+After=multi-user.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/gpd-fan-quiet
+ExecStopPost=/usr/local/bin/gpd-fan-quiet --restore
+Restart=on-failure
+RestartSec=2
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

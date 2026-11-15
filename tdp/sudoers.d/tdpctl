@@ -1,0 +1,6 @@
+# TDP Control plasmoid helper.
+# The widget polls "tdpctl status" every 20 s (2 s while open); that read-only
+# call is excluded from syslog. Changes (set-tdp / set-boost) are still logged.
+Cmnd_Alias TDPCTL_STATUS = /usr/local/bin/tdpctl status
+Defaults!TDPCTL_STATUS !syslog
+@USER@ ALL=(root) NOPASSWD: /usr/local/bin/tdpctl

@@ -1,0 +1,233 @@
+#!/usr/bin/python3 -I
+"""Root helper for the TDP Control plasmoid.
+
+Commands (all print a JSON status object on success):
+  status            read current limits, boost state and temperature
+  set-tdp <watts>   set STAPM/fast/slow limits (integer, TDP_MIN..TDP_MAX)
+  set-boost <0|1>   enable/disable CPU boost
+  set-fan <quiet|normal>  quiet = userspace fan curve (tdp-fan-quiet.service),
+                          normal = embedded-controller automatic curve
+
+Every change is also written into PowerControl's Decky settings file so the
+SteamOS-mode plugin starts from the same values next time it loads.
+"""
+import glob
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+import tempfile
+
+TDP_MIN, TDP_MAX = 5, 35
+TCTL_TEMP = 90                       # same thermal limit PowerControl passes
+BOOST_PATHS = ("/sys/devices/system/cpu/cpufreq/boost",
+               "/sys/devices/system/cpu/amd_pstate/cpb_boost")
+
+
+def fail(msg, code=1):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def target_user():
+    name = os.environ.get("SUDO_USER")
+    if name and name != "root":
+        return name
+    homes = glob.glob("/home/*/homebrew/settings/PowerControl/config.json")
+    return homes[0].split("/")[2] if homes else None
+
+
+def powercontrol_config(user):
+    if not user:
+        return None
+    home = pwd.getpwnam(user).pw_dir
+    path = os.path.join(home, "homebrew/settings/PowerControl/config.json")
+    return path if os.path.exists(path) else None
+
+
+def ryzenadj_path(user):
+    candidates = []
+    if user:
+        candidates.append(os.path.join(pwd.getpwnam(user).pw_dir,
+                                       "homebrew/plugins/PowerControl/bin/ryzenadj"))
+    candidates += ["/usr/bin/ryzenadj", "/usr/local/bin/ryzenadj"]
+    for c in candidates:
+        if os.access(c, os.X_OK):
+            return c
+    fail("ryzenadj not found")
+
+
+def run_ryzenadj(path, args):
+    p = subprocess.run([path, *args], capture_output=True, text=True, timeout=5)
+    if p.returncode != 0:
+        fail(f"ryzenadj failed ({p.returncode}): {p.stderr.strip() or p.stdout.strip()}")
+    return p.stdout
+
+
+def read_limits(path):
+    out = run_ryzenadj(path, ["--info"])
+    vals = {}
+    for line in out.splitlines():
+        m = re.match(r"\|\s*([A-Z ]+?)\s*\|\s*([0-9.]+|nan)\s*\|", line)
+        if m:
+            vals[m.group(1)] = None if m.group(2) == "nan" else float(m.group(2))
+    return vals
+
+
+def read_boost():
+    for p in BOOST_PATHS:
+        try:
+            return open(p).read().strip() == "1"
+        except OSError:
+            continue
+    return None
+
+
+def read_temp():
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            if open(os.path.join(h, "name")).read().strip() == "k10temp":
+                return int(open(os.path.join(h, "temp1_input")).read()) / 1000
+        except OSError:
+            continue
+    return None
+
+
+FAN_UNIT = "tdp-fan-quiet.service"
+
+
+def fan_hwmon():
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            if open(os.path.join(h, "name")).read().strip() == "gpdfan":
+                return h
+        except OSError:
+            continue
+    return None
+
+
+def fan_status():
+    h = fan_hwmon()
+    rpm = enable = pwm = None
+    if h:
+        try:
+            rpm = int(open(os.path.join(h, "fan1_input")).read())
+            enable = int(open(os.path.join(h, "pwm1_enable")).read())
+            if enable == 1:
+                pwm = int(open(os.path.join(h, "pwm1")).read())
+        except OSError:
+            pass
+    active = subprocess.run(["systemctl", "is-active", "--quiet", FAN_UNIT]).returncode == 0
+    return {"fan_mode": "quiet" if active else "normal", "fan_rpm": rpm,
+            "fan_pwm": pwm, "fan_manual": enable == 1}
+
+
+def set_fan(mode):
+    if mode == "quiet":
+        cmd = ["systemctl", "enable", "--now", FAN_UNIT]
+    else:
+        cmd = ["systemctl", "disable", "--now", FAN_UNIT]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    if p.returncode != 0:
+        fail(f"could not switch fan mode: {p.stderr.strip()}")
+
+
+def pc_defaults(cfg_path):
+    """Return (tdp, tdpEnable, cpuboost) from PowerControl's default profile."""
+    try:
+        d = json.load(open(cfg_path))["PowerControl"]["perApp"]["0"]["defaultSettig"]
+        return d.get("tdp"), d.get("tdpEnable"), d.get("cpuboost")
+    except Exception:
+        return None, None, None
+
+
+def sync_config(cfg_path, **changes):
+    if not cfg_path:
+        return False
+    try:
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        prof = cfg["PowerControl"]["perApp"]["0"]["defaultSettig"]
+    except Exception as exc:
+        print(f"warning: PowerControl config not updated: {exc}", file=sys.stderr)
+        return False
+    prof.update(changes)
+    st = os.stat(cfg_path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(cfg_path), prefix=".config.json.")
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f, indent=4, ensure_ascii=False)
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o777)
+    os.replace(tmp, cfg_path)
+    return True
+
+
+def status(rz, cfg_path):
+    lim = read_limits(rz)
+    stapm = lim.get("STAPM LIMIT")
+    pc_tdp, pc_enabled, pc_boost = pc_defaults(cfg_path) if cfg_path else (None, None, None)
+    return {
+        "tdp": int(round(stapm)) if stapm else 0,
+        "stapm_w": lim.get("STAPM VALUE"),
+        "fast_w": lim.get("PPT VALUE FAST"),
+        "slow_w": lim.get("PPT VALUE SLOW"),
+        "fast_limit_w": lim.get("PPT LIMIT FAST"),
+        "slow_limit_w": lim.get("PPT LIMIT SLOW"),
+        "boost": read_boost(),
+        "temp_c": read_temp(),
+        "pc_tdp": pc_tdp,
+        "pc_tdp_enabled": pc_enabled,
+        "pc_boost": pc_boost,
+        "tdp_min": TDP_MIN,
+        "tdp_max": TDP_MAX,
+        **fan_status(),
+    }
+
+
+def main(argv):
+    if os.geteuid() != 0:
+        fail("tdpctl must run as root (use: sudo -n tdpctl ...)")
+    if not argv:
+        fail(__doc__.strip(), 2)
+    user = target_user()
+    cfg_path = powercontrol_config(user)
+    rz = ryzenadj_path(user)
+    cmd, args = argv[0], argv[1:]
+
+    if cmd == "status" and not args:
+        pass
+    elif cmd == "set-tdp" and len(args) == 1:
+        try:
+            watts = int(args[0])
+        except ValueError:
+            fail("set-tdp needs an integer")
+        if not TDP_MIN <= watts <= TDP_MAX:
+            fail(f"TDP must be between {TDP_MIN} and {TDP_MAX} W")
+        mw = str(watts * 1000)
+        run_ryzenadj(rz, ["-a", mw, "-b", mw, "-c", mw, "-f", str(TCTL_TEMP)])
+        sync_config(cfg_path, tdp=watts)
+    elif cmd == "set-boost" and len(args) == 1 and args[0] in ("0", "1"):
+        on = args[0] == "1"
+        written = False
+        for p in BOOST_PATHS:
+            try:
+                with open(p, "w") as f:
+                    f.write("1" if on else "0")
+                written = True
+            except OSError:
+                continue
+        if not written:
+            fail("no writable CPU boost control found")
+        sync_config(cfg_path, cpuboost=on)
+    elif cmd == "set-fan" and len(args) == 1 and args[0] in ("quiet", "normal"):
+        set_fan(args[0])
+    else:
+        fail(__doc__.strip(), 2)
+
+    print(json.dumps(status(rz, cfg_path)))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

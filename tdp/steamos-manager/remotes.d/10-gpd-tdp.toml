@@ -1,0 +1,4 @@
+# Let steamos-manager relay Steam's TDP slider to our ryzenadj-backed provider.
+[TdpLimit1]
+bus_name = "org.cachyos.TdpProvider"
+object_path = "/org/cachyos/TdpProvider"

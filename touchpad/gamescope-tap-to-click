@@ -1,0 +1,190 @@
+#!/usr/bin/python3 -I
+"""Tap-to-click shim for touchpads inside a gamescope session.
+
+gamescope has no libinput configuration, so taps on a touchpad never become
+clicks.  This daemon watches the touchpad (read-only, no grab) and emits
+BTN_LEFT / BTN_RIGHT / BTN_MIDDLE clicks through a virtual uinput mouse for
+one-, two- and three-finger taps.  Physical clickpad presses are left alone.
+"""
+import argparse
+import logging
+import select
+import sys
+import time
+
+import evdev
+from evdev import ecodes as E
+
+TAP_MAX_SECONDS = 0.25      # finger(s) must lift within this time
+TAP_MAX_MOVE_MM = 3.0       # and move less than this
+FINGER_BUTTONS = {1: E.BTN_LEFT, 2: E.BTN_RIGHT, 3: E.BTN_MIDDLE}
+TOOL_COUNT = {E.BTN_TOOL_FINGER: 1, E.BTN_TOOL_DOUBLETAP: 2,
+              E.BTN_TOOL_TRIPLETAP: 3, E.BTN_TOOL_QUADTAP: 4,
+              E.BTN_TOOL_QUINTTAP: 5}
+
+log = logging.getLogger("tap2click")
+
+
+class TapDetector:
+    """Pure state machine: feed raw evdev events, get button codes back."""
+
+    def __init__(self, move_limit_units, max_seconds=TAP_MAX_SECONDS):
+        self.move_limit_sq = move_limit_units ** 2
+        self.max_seconds = max_seconds
+        self.reset()
+
+    def reset(self):
+        self.touching = False
+        self.start = None
+        self.max_fingers = 0
+        self.cancelled = False
+        self.slot = 0
+        self.slot_start = {}     # slot -> (x, y) at first contact
+        self.slot_pos = {}       # slot -> current (x, y)
+
+    def feed(self, etype, code, value, ts):
+        """Returns a button code to click, or None."""
+        if etype == E.EV_KEY:
+            if code == E.BTN_TOUCH:
+                if value == 1 and not self.touching:
+                    self.reset()
+                    self.touching = True
+                    self.start = ts
+                elif value == 0 and self.touching:
+                    result = self._finish(ts)
+                    self.reset()
+                    return result
+            elif code in TOOL_COUNT and value == 1 and self.touching:
+                self.max_fingers = max(self.max_fingers, TOOL_COUNT[code])
+            elif code in (E.BTN_LEFT, E.BTN_RIGHT, E.BTN_MIDDLE) and value == 1:
+                self.cancelled = True      # physical clickpad press
+        elif etype == E.EV_ABS and self.touching:
+            if code == E.ABS_MT_SLOT:
+                self.slot = value
+            elif code == E.ABS_MT_TRACKING_ID:
+                if value == -1:
+                    self.slot_start.pop(self.slot, None)
+                    self.slot_pos.pop(self.slot, None)
+                else:
+                    self.slot_start.pop(self.slot, None)
+                    self.slot_pos.pop(self.slot, None)
+            elif code in (E.ABS_MT_POSITION_X, E.ABS_MT_POSITION_Y):
+                x, y = self.slot_pos.get(self.slot, (None, None))
+                if code == E.ABS_MT_POSITION_X:
+                    x = value
+                else:
+                    y = value
+                self.slot_pos[self.slot] = (x, y)
+                if x is not None and y is not None:
+                    sx, sy = self.slot_start.setdefault(self.slot, (x, y))
+                    if (x - sx) ** 2 + (y - sy) ** 2 > self.move_limit_sq:
+                        self.cancelled = True
+        return None
+
+    def _finish(self, ts):
+        if self.cancelled or self.start is None:
+            return None
+        if ts - self.start > self.max_seconds:
+            return None
+        return FINGER_BUTTONS.get(self.max_fingers)
+
+
+def is_touchpad(dev):
+    props = dev.input_props()
+    if E.INPUT_PROP_POINTER not in props or E.INPUT_PROP_DIRECT in props:
+        return False
+    caps = dev.capabilities()
+    return (E.ABS_MT_POSITION_X in dict(caps.get(E.EV_ABS, []))
+            and E.BTN_TOUCH in caps.get(E.EV_KEY, []))
+
+
+def find_touchpads():
+    pads = []
+    for path in evdev.list_devices():
+        try:
+            dev = evdev.InputDevice(path)
+        except OSError as exc:
+            log.debug("skip %s: %s", path, exc)
+            continue
+        if is_touchpad(dev):
+            pads.append(dev)
+        else:
+            dev.close()
+    return pads
+
+
+def move_limit_for(dev):
+    info = dict(dev.capabilities(absinfo=True)[E.EV_ABS])
+    ax = info[E.ABS_MT_POSITION_X]
+    if ax.resolution > 0:
+        return TAP_MAX_MOVE_MM * ax.resolution
+    return (ax.max - ax.min) * 0.05
+
+
+def make_virtual_mouse():
+    caps = {
+        E.EV_KEY: [E.BTN_LEFT, E.BTN_RIGHT, E.BTN_MIDDLE],
+        E.EV_REL: [E.REL_X, E.REL_Y],
+    }
+    return evdev.UInput(caps, name="gamescope tap-to-click", vendor=0x1, product=0x1)
+
+
+def click(ui, button):
+    ui.write(E.EV_KEY, button, 1)
+    ui.syn()
+    time.sleep(0.015)
+    ui.write(E.EV_KEY, button, 0)
+    ui.syn()
+
+
+def run(args):
+    ui = make_virtual_mouse()
+    log.info("virtual mouse created (%s)", getattr(ui, "devnode", None) or "uinput")
+    while True:
+        pads = find_touchpads()
+        if not pads:
+            log.warning("no touchpad found, retrying in 5s")
+            time.sleep(5)
+            continue
+        detectors = {}
+        for dev in pads:
+            detectors[dev.fd] = (dev, TapDetector(move_limit_for(dev)))
+            log.info("watching %s (%s)", dev.name, dev.path)
+        try:
+            while detectors:
+                ready, _, _ = select.select(list(detectors), [], [])
+                for fd in ready:
+                    dev, det = detectors[fd]
+                    try:
+                        for ev in dev.read():
+                            btn = det.feed(ev.type, ev.code, ev.value, ev.timestamp())
+                            if btn is not None:
+                                log.debug("tap -> button 0x%x", btn)
+                                click(ui, btn)
+                    except OSError as exc:
+                        log.warning("%s went away: %s", dev.name, exc)
+                        dev.close()
+                        del detectors[fd]
+        finally:
+            for dev, _ in detectors.values():
+                dev.close()
+        time.sleep(1)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--list", action="store_true", help="show detected touchpads and exit")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
+                        format="%(levelname)s %(message)s", stream=sys.stderr)
+    if args.list:
+        pads = find_touchpads()
+        for dev in pads:
+            print(f"{dev.path}\t{dev.name}\tmove-limit={move_limit_for(dev):.0f} units")
+        return 0 if pads else 1
+    run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

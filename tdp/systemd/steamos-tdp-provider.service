@@ -1,0 +1,14 @@
+[Unit]
+Description=TDP provider for steamos-manager (Steam native TDP slider via ryzenadj)
+After=dbus.service
+Before=steamos-manager.service
+
+[Service]
+Type=dbus
+BusName=org.cachyos.TdpProvider
+ExecStart=/usr/local/bin/steamos-tdp-provider
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

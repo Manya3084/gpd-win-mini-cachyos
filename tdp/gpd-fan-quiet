@@ -1,0 +1,111 @@
+#!/usr/bin/python3 -I
+"""Quiet fan curve for GPD handhelds (gpd-fan hwmon driver).
+
+Takes manual control of the fan and follows a conservative curve driven by the
+CPU Tctl temperature.  On exit (SIGTERM, error, or --restore) the fan is handed
+back to the embedded controller's automatic mode.
+"""
+import glob
+import os
+import signal
+import sys
+import time
+
+# (Tctl °C, pwm 0-255).  Measured on a WIN Mini 2025: pwm 30≈1400 rpm, 50≈2100,
+# 70≈2700, 100≈3500, 150≈4650.  The EC's own curve runs ~4000 rpm at idle.
+CURVE = [(45, 25), (55, 40), (65, 70), (75, 110), (82, 160), (88, 215), (92, 255)]
+TICK = 2.0            # seconds between updates
+SMOOTH = 0.5          # exponential smoothing of the temperature
+DOWN_STEP = 6         # max pwm decrease per tick (slow spin-down, instant spin-up)
+PANIC_TEMP = 95       # above this always run at full speed
+
+
+def hwmon_by_name(name):
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            if open(os.path.join(h, "name")).read().strip() == name:
+                return h
+        except OSError:
+            pass
+    return None
+
+
+def write(path, value):
+    with open(path, "w") as f:
+        f.write(str(value))
+
+
+def read_int(path):
+    with open(path) as f:
+        return int(f.read().strip())
+
+
+def curve_pwm(temp):
+    if temp <= CURVE[0][0]:
+        return CURVE[0][1]
+    if temp >= CURVE[-1][0]:
+        return CURVE[-1][1]
+    for (t0, p0), (t1, p1) in zip(CURVE, CURVE[1:]):
+        if t0 <= temp <= t1:
+            return int(round(p0 + (p1 - p0) * (temp - t0) / (t1 - t0)))
+    return 255
+
+
+def restore(fan):
+    try:
+        write(os.path.join(fan, "pwm1_enable"), 2)
+    except OSError as exc:
+        print(f"could not restore auto fan mode: {exc}", file=sys.stderr)
+
+
+def main():
+    fan = hwmon_by_name("gpdfan")
+    cpu = hwmon_by_name("k10temp")
+    if not fan or not cpu:
+        print("gpdfan or k10temp hwmon not found", file=sys.stderr)
+        return 1
+    if "--restore" in sys.argv:
+        restore(fan)
+        return 0
+
+    enable_path = os.path.join(fan, "pwm1_enable")
+    pwm_path = os.path.join(fan, "pwm1")
+    temp_path = os.path.join(cpu, "temp1_input")
+
+    stop = False
+
+    def on_signal(*_):
+        nonlocal stop
+        stop = True
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+
+    smoothed = read_int(temp_path) / 1000
+    current = None
+    try:
+        while not stop:
+            temp = read_int(temp_path) / 1000
+            smoothed = SMOOTH * temp + (1 - SMOOTH) * smoothed
+            target = 255 if temp >= PANIC_TEMP else curve_pwm(smoothed)
+            if current is not None and target < current:
+                target = max(target, current - DOWN_STEP)
+            # Re-assert manual mode every tick: the EC can fall back to auto after
+            # suspend/resume, and the driver resets pwm to 255 when that happens.
+            if read_int(enable_path) != 1:
+                write(enable_path, 1)
+                current = None
+            if target != current:
+                write(pwm_path, target)
+                current = target
+            time.sleep(TICK)
+    except Exception as exc:
+        print(f"fan loop error: {exc}", file=sys.stderr)
+        restore(fan)
+        return 1
+    restore(fan)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

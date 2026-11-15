@@ -1,0 +1,114 @@
+#!/usr/bin/python3 -I
+"""Remote TdpLimit1 provider for steamos-manager.
+
+Exposes com.steampowered.SteamOSManager1.TdpLimit1 on the system bus at
+org.cachyos.TdpProvider so steamos-manager can relay Steam's native TDP slider
+to this device.  All reads/writes go through /usr/local/bin/tdpctl, so the same
+validation and PowerControl config sync apply as for the KDE widget.
+"""
+import json
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gio", "2.0")
+gi.require_version("GLib", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+BUS_NAME = "org.cachyos.TdpProvider"
+OBJECT_PATH = "/org/cachyos/TdpProvider"
+IFACE = "com.steampowered.SteamOSManager1.TdpLimit1"
+TDPCTL = "/usr/local/bin/tdpctl"
+POLL_SECONDS = 5
+
+INTROSPECTION = f"""
+<node>
+  <interface name="{IFACE}">
+    <property name="TdpLimit" type="u" access="readwrite"/>
+    <property name="TdpLimitMin" type="u" access="read"/>
+    <property name="TdpLimitMax" type="u" access="read"/>
+  </interface>
+</node>
+"""
+
+state = {"TdpLimit": 0, "TdpLimitMin": 5, "TdpLimitMax": 35}
+connection = None
+
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def tdpctl(*args):
+    p = subprocess.run([TDPCTL, *args], capture_output=True, text=True, timeout=15)
+    if p.returncode != 0:
+        raise RuntimeError(p.stderr.strip() or f"tdpctl exit {p.returncode}")
+    return json.loads(p.stdout)
+
+
+def apply_status(s):
+    """Update cached state from a tdpctl status dict; emit PropertiesChanged if needed."""
+    new = {"TdpLimit": int(s.get("tdp") or 0),
+           "TdpLimitMin": int(s.get("tdp_min") or 5),
+           "TdpLimitMax": int(s.get("tdp_max") or 35)}
+    changed = {k: v for k, v in new.items() if v != state[k]}
+    state.update(new)
+    if changed and connection is not None:
+        connection.emit_signal(
+            None, OBJECT_PATH, "org.freedesktop.DBus.Properties", "PropertiesChanged",
+            GLib.Variant("(sa{sv}as)", (IFACE, {k: GLib.Variant("u", v) for k, v in changed.items()}, [])),
+        )
+
+
+def refresh():
+    try:
+        apply_status(tdpctl("status"))
+    except Exception as exc:
+        log(f"status refresh failed: {exc}")
+    return True  # keep the timer
+
+
+def on_get_property(conn, sender, path, iface, name):
+    if name in state:
+        return GLib.Variant("u", state[name])
+    return None
+
+
+def on_set_property(conn, sender, path, iface, name, value):
+    if name != "TdpLimit":
+        return False
+    watts = value.get_uint32()
+    try:
+        apply_status(tdpctl("set-tdp", str(watts)))
+        log(f"TDP set to {watts} W via Steam")
+        return True
+    except Exception as exc:
+        log(f"rejected TDP {watts} W: {exc}")
+        return False
+
+
+def on_method_call(conn, sender, path, iface, method, params, invocation):
+    invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
+
+
+def on_bus_acquired(conn, name):
+    global connection
+    connection = conn
+    node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION)
+    conn.register_object(OBJECT_PATH, node.interfaces[0],
+                         on_method_call, on_get_property, on_set_property)
+    refresh()
+    log(f"exported {IFACE} at {OBJECT_PATH}")
+
+
+def on_name_lost(conn, name):
+    log(f"lost bus name {name}, exiting")
+    loop.quit()
+
+
+loop = GLib.MainLoop()
+Gio.bus_own_name(Gio.BusType.SYSTEM, BUS_NAME, Gio.BusNameOwnerFlags.NONE,
+                 on_bus_acquired, None, on_name_lost)
+GLib.timeout_add_seconds(POLL_SECONDS, refresh)
+loop.run()

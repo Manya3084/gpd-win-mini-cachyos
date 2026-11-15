@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [ { "Name": "gpd-win-mini-cachyos contributors" } ],
+        "Category": "System Information",
+        "Description": "Set the APU power limit (TDP), presets and CPU boost; stays in sync with the PowerControl Decky plugin",
+        "EnabledByDefault": true,
+        "Icon": "speedometer",
+        "Id": "org.cachyos.tdpcontrol",
+        "License": "MIT",
+        "Name": "TDP Control",
+        "Version": "1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

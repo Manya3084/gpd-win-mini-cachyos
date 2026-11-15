@@ -1,0 +1,22 @@
+# Added locally: the 2025 (HX 370 / AI 9 365) WIN Mini reports product G1617-02,
+# which the packaged gpd-win.toml does not list. TDP is provided remotely by
+# steamos-tdp-provider.service (see /etc/steamos-manager/remotes.d).
+[[device]]
+dmi.sys_vendor = "GPD"
+dmi.product_name = "G1617-02"
+device = "gpd_win_mini"
+variant = "G1617-02"
+friendly_name = "GPD WIN Mini (2025)"
+
+[gpu_performance]
+driver = "amdgpu"
+
+[gpu_power_profile]
+driver = "amdgpu"
+
+# OD_RANGE reported by amdgpu for the Radeon 890M; without this steamos-manager
+# derives the manual-clock range from pp_dpm_sclk levels (1100-1800) and rejects
+# values Steam sends.
+[gpu_performance.clocks]
+min = 600
+max = 2900

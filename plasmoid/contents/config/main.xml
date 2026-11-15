@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="preset1Name" type="String"><default>Quiet</default></entry>
+    <entry name="preset1Watts" type="Int"><default>8</default></entry>
+    <entry name="preset2Name" type="String"><default>Balanced</default></entry>
+    <entry name="preset2Watts" type="Int"><default>15</default></entry>
+    <entry name="preset3Name" type="String"><default>Performance</default></entry>
+    <entry name="preset3Watts" type="Int"><default>20</default></entry>
+    <entry name="preset4Name" type="String"><default>Max</default></entry>
+    <entry name="preset4Watts" type="Int"><default>28</default></entry>
+    <entry name="showWattsInPanel" type="Bool"><default>true</default></entry>
+  </group>
+</kcfg>

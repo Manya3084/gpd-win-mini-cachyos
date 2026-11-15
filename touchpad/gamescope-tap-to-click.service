@@ -1,0 +1,13 @@
+[Unit]
+Description=Tap-to-click for touchpads in the gamescope session
+After=gamescope-session.service
+PartOf=gamescope-session.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/gamescope-tap-to-click
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=gamescope-session.target
