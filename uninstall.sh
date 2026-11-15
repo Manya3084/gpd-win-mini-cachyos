@@ -3,7 +3,8 @@
 set -uo pipefail
 [[ $EUID -eq 0 ]] || { echo "run with sudo"; exit 1; }
 TARGET_USER="${SUDO_USER:-${1:-}}"
-systemctl --global disable gamescope-tap-to-click.service 2>/dev/null
+systemctl --global disable gamescope-tap-to-click.service gamescope-screenshot-key.service 2>/dev/null
+rm -f /usr/local/bin/gamescope-screenshot-key /etc/systemd/user/gamescope-screenshot-key.service
 rm -f /usr/local/bin/gamescope-tap-to-click /etc/systemd/user/gamescope-tap-to-click.service /etc/udev/rules.d/71-touchpad-uaccess.rules
 systemctl disable --now tdp-fan-quiet.service steamos-tdp-provider.service 2>/dev/null
 /usr/local/bin/gpd-fan-quiet --restore 2>/dev/null

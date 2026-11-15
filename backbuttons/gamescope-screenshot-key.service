@@ -1,0 +1,14 @@
+[Unit]
+Description=Save a gamescope screenshot when the L4 back button (F13) is pressed
+After=gamescope-session.service
+PartOf=gamescope-session.target
+
+[Service]
+Type=exec
+EnvironmentFile=%t/gamescope-environment
+ExecStart=/usr/local/bin/gamescope-screenshot-key
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=gamescope-session.target

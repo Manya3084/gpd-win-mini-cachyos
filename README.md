@@ -28,7 +28,7 @@ Three problems are solved here:
 | `tdp/gpd-fan-quiet` | Gentler fan curve using the kernel `gpd-fan` driver's manual PWM mode (~1200 rpm idle vs ~4000 rpm for the EC curve). Hands control back to the EC on exit or crash. |
 | `tdp/steamos-tdp-provider` | System-bus D-Bus service implementing Valve's `TdpLimit1` interface. Registered with steamos-manager as a *remote interface*, which makes **Steam's native TDP slider** work in gamescope with no patched binaries and no Decky plugin. |
 | `plasmoid/` | Plasma 6 panel widget: TDP slider, four presets, CPU boost switch, fan Normal/Quiet, live power/temp/rpm readout. Reads the real limit from the chip, so it always agrees with Steam. |
-| `backbuttons/` | udev rule for the controller's WinControls interface, a script that maps L4 = Menu+R1 and R4 = Menu+A as gamepad chords with OpenWinControlsCLI, and a patch that teaches Steam's chord layout to screenshot on Menu+R1. |
+| `backbuttons/` | udev rules for the controller, a script that maps L4 = F13 and R4 = Menu+A with OpenWinControlsCLI, and `gamescope-screenshot-key`, a user service that turns the F13 press into a gamescope screenshot. |
 | `pkg/ryzenadj/` | PKGBUILD for [RyzenAdj](https://github.com/FlyGoat/RyzenAdj), pinned to a tagged release with checksum. |
 | `install.sh` / `uninstall.sh` | Idempotent installer; substitutes your username into the sudoers and D-Bus policy files. |
 
@@ -94,33 +94,26 @@ sudo ./install.sh --backbuttons        # udev rule so the CLI works without sudo
 git clone https://aur.archlinux.org/openwincontrolscli-git.git && cd openwincontrolscli-git && makepkg -si
 ```
 
-**Apply the Steam-friendly mapping**: L4 = Menu+R1 (Steam screenshot chord) and R4 = Menu+A
-(Quick Access Menu, the "..." tray). These are *gamepad* chords: the firmware can put gamepad
-buttons in the macro slots, they arrive on the Xbox-pad device, and Steam Input consumes them as
-system shortcuts so nothing leaks into the game. Keyboard mappings such as F12 or Ctrl+Shift+Tab
-also reach the game and did not reliably trigger Steam's actions in gamepad mode. The Menu
-button alone still opens the Steam menu. The script saves the current config to `~/Documents` first:
+**Apply the mapping**: R4 = Menu+A (Steam's Quick Access Menu chord) and L4 = F13, which a
+small service turns into a screenshot. The script saves the current config to `~/Documents` first:
 
 ```sh
 ./backbuttons/apply-steam-mapping.sh
 ```
 
-**Make Menu+R1 take screenshots.** Steam's stock chord for screenshots on an Xbox-style pad is
-Guide + RT (about a half pull), but the V2 firmware has a known bug where **LT/RT are ignored in
-macro slots** (reported to GPD in February 2026, unfixed), so a back button cannot pull a trigger.
-Steam needs to learn the bumper chord instead. The clean way is *Settings → Controller → Guide
-Button Chord Layout → Edit Layout*, right bumper → *System → Take Screenshot*. If that setting is
-missing or does not stick on your install, patch Steam's base chord layouts directly:
+**Why L4 is not a Steam chord.** Steam's screenshot chord on an Xbox-style pad is Guide + RT
+(about a half pull). The V2 firmware has a known bug where **LT/RT are ignored in macro slots**
+(reported to GPD in February 2026, unfixed), so a back button cannot pull a trigger. Guide + R1
+is a mouse click in Steam's stock layout, and editing the layout files under `controller_base/`
+does not survive a Steam restart (the bootstrapper restores them). So L4 sends F13 instead and
+`gamescope-screenshot-key.service` (started with the gamescope session, installed by
+`--backbuttons`) calls `gamescopectl screenshot` to save
+`~/Pictures/Screenshots/gamescope-YYYYMMDD-HHMMSS.png`. This works in the Steam UI and in
+games, but the images are not added to Steam's screenshot library. If Steam's chord editor
+(*Settings → Controller → Guide Button Chord Layout*) exists on your build you can instead
+bind right bumper → *Take Screenshot* there and map L4 to `MENU,R1`.
 
-```sh
-./backbuttons/patch-steam-chord.sh     # edits controller_base/chord*.vdf, keeps .orig backups
-```
-
-Restart Steam afterwards. Steam updates may replace those files; the script is idempotent, so
-just run it again. Holding the Menu button for a few seconds in gamepad mode shows the current
-chord list if you want to check.
-
-Or roll your own. Gamepad names (`MENU`, `BTN_A`, `R1`, … but not the triggers, see above) and keyboard names (`F13`, …) can be
+Or roll your own. Gamepad names (`MENU`, `BTN_A`, `R1`, … but not the triggers, see above) and keyboard names and keyboard names (`F13`, …) can be
 mixed per slot; F13/F14 are handy if you prefer binding per game inside Steam Input:
 
 ```sh

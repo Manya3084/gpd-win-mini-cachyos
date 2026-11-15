@@ -1,0 +1,96 @@
+#!/usr/bin/python3 -I
+"""Turn a spare key (default F13, sent by the GPD L4 back button) into a gamescope screenshot.
+
+Runs inside the gamescope session as the user. Watches the keyboard device(s) that can emit
+the key and, on each press, asks gamescope (via gamescopectl) to save a timestamped PNG.
+Works in the Steam UI and in games alike, since gamescope composites both.
+"""
+import argparse
+import datetime
+import os
+import select
+import subprocess
+import sys
+import time
+
+import evdev
+from evdev import ecodes as E
+
+DEFAULT_DIR = os.path.join(os.environ.get("XDG_PICTURES_DIR", os.path.expanduser("~/Pictures")), "Screenshots")
+
+
+def log(msg):
+    print(msg, file=sys.stderr, flush=True)
+
+
+def candidate_devices(key):
+    devs = []
+    for path in evdev.list_devices():
+        try:
+            d = evdev.InputDevice(path)
+        except OSError:
+            continue
+        keys = d.capabilities().get(E.EV_KEY, [])
+        if key in keys and E.BTN_TOUCH not in keys:   # keyboards only, skip touch/gamepads
+            devs.append(d)
+        else:
+            d.close()
+    return devs
+
+
+def take_screenshot(outdir, dry_run):
+    os.makedirs(outdir, exist_ok=True)
+    path = os.path.join(outdir, datetime.datetime.now().strftime("gamescope-%Y%m%d-%H%M%S.png"))
+    if dry_run:
+        log(f"[test] would run: gamescopectl screenshot {path}")
+        return
+    try:
+        r = subprocess.run(["gamescopectl", "screenshot", path], capture_output=True, text=True, timeout=10)
+        if r.returncode == 0:
+            log(f"screenshot requested -> {path}")
+        else:
+            log(f"gamescopectl failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
+    except Exception as exc:
+        log(f"gamescopectl error: {exc}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--key", default="KEY_F13", help="evdev key name to react to (default KEY_F13)")
+    ap.add_argument("--dir", default=DEFAULT_DIR, help="where to save PNGs")
+    ap.add_argument("--test", action="store_true", help="only log presses, do not call gamescopectl")
+    args = ap.parse_args()
+    key = E.ecodes[args.key]
+    last = 0.0
+    while True:
+        devs = candidate_devices(key)
+        if not devs:
+            log("no keyboard device offering the key yet; retrying")
+            time.sleep(3)
+            continue
+        fds = {d.fd: d for d in devs}
+        log("watching: " + ", ".join(f"{d.name.strip()} ({d.path})" for d in devs))
+        try:
+            while fds:
+                ready, _, _ = select.select(list(fds), [], [], 5)
+                for fd in ready:
+                    d = fds[fd]
+                    try:
+                        for ev in d.read():
+                            if ev.type == E.EV_KEY and ev.code == key and ev.value == 1:
+                                now = time.monotonic()
+                                if now - last > 0.8:          # debounce auto-repeat / double fire
+                                    last = now
+                                    take_screenshot(args.dir, args.test)
+                    except OSError:
+                        log(f"{d.name.strip()} went away")
+                        d.close()
+                        del fds[fd]
+        finally:
+            for d in fds.values():
+                d.close()
+        time.sleep(2)   # device hot-unplugged (the GPD hub re-enumerates sometimes); rescan
+
+
+if __name__ == "__main__":
+    sys.exit(main())

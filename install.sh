@@ -81,7 +81,12 @@ fi
 if [[ $DO_BB -eq 1 ]]; then
   echo "==> back buttons: udev rule for the controller's WinControls interface"
   install -m 644 "$HERE/backbuttons/70-gpd-controller.rules" /etc/udev/rules.d/70-gpd-controller.rules
-  udevadm control --reload; udevadm trigger --action=add --subsystem-match=usb --subsystem-match=hidraw
+  udevadm control --reload; udevadm trigger --action=add --subsystem-match=usb --subsystem-match=hidraw --subsystem-match=input
+  pacman -S --needed --noconfirm python-evdev >/dev/null
+  install -m 755 "$HERE/backbuttons/gamescope-screenshot-key" /usr/local/bin/gamescope-screenshot-key
+  install -m 644 "$HERE/backbuttons/gamescope-screenshot-key.service" /etc/systemd/user/gamescope-screenshot-key.service
+  systemctl --global enable gamescope-screenshot-key.service
+  echo "    L4 (F13) -> gamescope screenshot service enabled for the gamescope session"
   if ! command -v OpenWinControlsCLI >/dev/null; then
     echo "    then, as your normal user, install the CLI and apply the mapping:"
     echo "      git clone https://aur.archlinux.org/openwincontrolscli-git.git && cd openwincontrolscli-git && makepkg -si"
