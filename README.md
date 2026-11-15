@@ -28,7 +28,7 @@ Three problems are solved here:
 | `tdp/gpd-fan-quiet` | Gentler fan curve using the kernel `gpd-fan` driver's manual PWM mode (~1200 rpm idle vs ~4000 rpm for the EC curve). Hands control back to the EC on exit or crash. |
 | `tdp/steamos-tdp-provider` | System-bus D-Bus service implementing Valve's `TdpLimit1` interface. Registered with steamos-manager as a *remote interface*, which makes **Steam's native TDP slider** work in gamescope with no patched binaries and no Decky plugin. |
 | `plasmoid/` | Plasma 6 panel widget: TDP slider, four presets, CPU boost switch, fan Normal/Quiet, live power/temp/rpm readout. Reads the real limit from the chip, so it always agrees with Steam. |
-| `backbuttons/` | udev rule for the controller's WinControls interface and a script that maps L4 = Shift+Tab, R4 = F12 with OpenWinControlsCLI. |
+| `backbuttons/` | udev rule for the controller's WinControls interface and a script that maps L4 = F12 (screenshot), R4 = Ctrl+Shift+Tab (Quick Access Menu) with OpenWinControlsCLI. |
 | `pkg/ryzenadj/` | PKGBUILD for [RyzenAdj](https://github.com/FlyGoat/RyzenAdj), pinned to a tagged release with checksum. |
 | `install.sh` / `uninstall.sh` | Idempotent installer; substitutes your username into the sudoers and D-Bus policy files. |
 
@@ -94,8 +94,10 @@ sudo ./install.sh --backbuttons        # udev rule so the CLI works without sudo
 git clone https://aur.archlinux.org/openwincontrolscli-git.git && cd openwincontrolscli-git && makepkg -si
 ```
 
-**Apply the Steam-friendly mapping** (L4 = Shift+Tab for the Steam overlay / menu,
-R4 = F12 for Steam screenshots). The script saves the current config to `~/Documents` first:
+**Apply the Steam-friendly mapping**: L4 = F12 (Steam screenshot), R4 = Ctrl+Shift+Tab
+(Steam's Quick Access Menu hotkey, the "..." tray on the right). The controller's Menu button
+already opens the Steam menu, so the back buttons cover the two things it does not. The script
+saves the current config to `~/Documents` first:
 
 ```sh
 ./backbuttons/apply-steam-mapping.sh
@@ -115,7 +117,12 @@ Notes:
 - The mapping is stored in the controller, so it persists across reboots and applies under
   Windows as well.
 - `l4d`/`r4d` are per-key start offsets and `l4h`/`r4h` per-key hold times, in ms. For a chord,
-  start the modifier first and release it last (the script uses Shift 0–220 ms, Tab 40–160 ms).
+  start the modifiers first and release them last (the script holds Ctrl and Shift 0–220 ms
+  and taps Tab 40–160 ms).
+- Steam hotkeys in the gamepad UI: Ctrl+Shift+Tab opens the Quick Access Menu and Shift+Tab
+  the Steam menu, in and out of games on current Steam clients (older clients only honoured
+  Ctrl+1 / Ctrl+2 outside of games). If your client ignores them, update Steam or check
+  Settings for the configurable hotkeys.
   Hold times over ~150 ms make the kernel emit a key auto-repeat; harmless for most keys.
 - Slots beyond the active count keep whatever stale keys were there; the firmware ignores them.
 - CLI 2.10's `export` exits 0 without writing a file; back up with `OpenWinControlsCLI print > file`.
