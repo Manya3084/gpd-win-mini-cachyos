@@ -1,0 +1,28 @@
+# Maintainer: gpd-win-mini-cachyos contributors
+# Build:  cd pkg/ryzenadj && makepkg -si
+pkgname=ryzenadj
+pkgver=0.19.0
+pkgrel=1
+pkgdesc="Adjust power management settings (STAPM/PPT/TDP) of AMD Ryzen mobile APUs via the SMU"
+arch=('x86_64')
+url="https://github.com/FlyGoat/RyzenAdj"
+license=('LGPL-3.0-only')
+depends=('pciutils')
+makedepends=('cmake')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/FlyGoat/RyzenAdj/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('d1998b6c2d1b564f5d43c786cbf764ca9a1d8bb213e2001f98f611ead3087c7e')
+
+build() {
+  cmake -S "RyzenAdj-$pkgver" -B build \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+package() {
+  install -Dm755 build/ryzenadj        "$pkgdir/usr/bin/ryzenadj"
+  install -Dm755 build/libryzenadj.so  "$pkgdir/usr/lib/libryzenadj.so"
+  install -Dm644 "RyzenAdj-$pkgver/lib/ryzenadj.h" "$pkgdir/usr/include/ryzenadj.h"
+  install -Dm644 "RyzenAdj-$pkgver/README.md"      "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 "RyzenAdj-$pkgver/LICENSE"        "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

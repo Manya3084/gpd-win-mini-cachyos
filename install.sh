@@ -68,10 +68,8 @@ if [[ $DO_TDP -eq 1 ]]; then
 
   echo
   if ! command -v ryzenadj >/dev/null && [[ ! -x /usr/local/bin/ryzenadj ]]; then
-    echo "!!  ryzenadj not found. Build it (see README 'ryzenadj'):"
-    echo "    pacman -S cmake && git clone https://github.com/FlyGoat/RyzenAdj && cd RyzenAdj"
-    echo "    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build"
-    echo "    sudo install -m755 build/ryzenadj /usr/local/bin/ && sudo install -m755 build/libryzenadj.so /usr/local/lib/ && sudo ldconfig"
+    echo "!!  ryzenadj not found. Build and install the bundled package (as your normal user):"
+    echo "    cd $HERE/pkg/ryzenadj && makepkg -si"
   fi
   if ! grep -qw 'iomem=relaxed' /proc/cmdline; then
     echo "!!  kernel cmdline lacks iomem=relaxed; ryzenadj cannot reach the SMU without it."

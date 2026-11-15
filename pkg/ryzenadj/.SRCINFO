@@ -1,0 +1,13 @@
+pkgbase = ryzenadj
+	pkgdesc = Adjust power management settings (STAPM/PPT/TDP) of AMD Ryzen mobile APUs via the SMU
+	pkgver = 0.19.0
+	pkgrel = 1
+	url = https://github.com/FlyGoat/RyzenAdj
+	arch = x86_64
+	license = LGPL-3.0-only
+	makedepends = cmake
+	depends = pciutils
+	source = ryzenadj-0.19.0.tar.gz::https://github.com/FlyGoat/RyzenAdj/archive/refs/tags/v0.19.0.tar.gz
+	sha256sums = d1998b6c2d1b564f5d43c786cbf764ca9a1d8bb213e2001f98f611ead3087c7e
+
+pkgname = ryzenadj

@@ -25,20 +25,19 @@ Two problems are solved here:
 | `tdp/gpd-fan-quiet` | Gentler fan curve using the kernel `gpd-fan` driver's manual PWM mode (~1200 rpm idle vs ~4000 rpm for the EC curve). Hands control back to the EC on exit or crash. |
 | `tdp/steamos-tdp-provider` | System-bus D-Bus service implementing Valve's `TdpLimit1` interface. Registered with steamos-manager as a *remote interface*, which makes **Steam's native TDP slider** work in gamescope with no patched binaries and no Decky plugin. |
 | `plasmoid/` | Plasma 6 panel widget: TDP slider, four presets, CPU boost switch, fan Normal/Quiet, live power/temp/rpm readout. Reads the real limit from the chip, so it always agrees with Steam. |
+| `pkg/ryzenadj/` | PKGBUILD for [RyzenAdj](https://github.com/FlyGoat/RyzenAdj), pinned to a tagged release with checksum. |
 | `install.sh` / `uninstall.sh` | Idempotent installer; substitutes your username into the sudoers and D-Bus policy files. |
 
 ## Requirements
 
 - CachyOS (or any Arch-based distro) with `gamescope-session`, Plasma 6, systemd, dbus.
 - `steamos-manager` from the CachyOS repo (installed by `install.sh`).
-- **ryzenadj** in `PATH` or `/usr/local/bin`. Not in the CachyOS repos; build it:
+- **ryzenadj**. Not in the CachyOS repos; a PKGBUILD pinned to the current release is
+  included, so it installs as a normal pacman package:
   ```sh
-  sudo pacman -S cmake
-  git clone https://github.com/FlyGoat/RyzenAdj && cd RyzenAdj
-  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-  sudo install -m755 build/ryzenadj /usr/local/bin/
-  sudo install -m755 build/libryzenadj.so /usr/local/lib/ && sudo ldconfig
+  cd pkg/ryzenadj && makepkg -si      # installs /usr/bin/ryzenadj
   ```
+  (`tdpctl` also accepts a manual copy in `/usr/local/bin`.)
 - **`iomem=relaxed`** on the kernel command line (CachyOS kernels build with
   `CONFIG_STRICT_DEVMEM`, which otherwise blocks ryzenadj's `/dev/mem` access).
   Limine (CachyOS default):
